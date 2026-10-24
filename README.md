@@ -68,6 +68,63 @@ invest in one rather than both.
 make ablate
 ```
 
+## What this design can actually detect
+
+Before reading anything into a difference between two cells, it is worth
+knowing what size of difference the design could detect at all. `make power`
+computes this from the config rather than hardcoding it, so changing
+`tasks_per_cell` changes the answer instead of leaving a stale claim here.
+
+For the quick tier — twelve cells, four tasks each, one repeat, 48 runs:
+
+| | |
+|---|---|
+| values a cell's rate can take | 0.00, 0.25, 0.50, 0.75, 1.00 |
+| smallest observable difference | 25 points |
+| detectable difference within one cell | none, at any effect size |
+| detectable main effect (averaged over the other axis) | 44 points |
+| power for a 20-point main effect | 12.6% |
+| power for a 20-point interaction | 6.9% |
+
+The first row is the one that matters. With four binary tasks a cell's score
+is one of five values, so a difference of less than 25 points is not merely
+underpowered — it cannot be represented. And within a single cell, no effect
+size reaches 80% power, however large.
+
+To detect a 20-point main effect at 80% power needs 50 tasks per cell. The
+same effect as an **interaction** needs 197 — a measured penalty of 3.94×,
+which is the textbook "interactions need four times the sample" arrived at
+from this design rather than quoted. That makes the interaction, not the main
+effects, the thing that sizes the experiment.
+
+`configs/full.yaml` reaches 99% power for a 20-point main effect but only
+**55% for a 20-point interaction**, so even the full tier is underpowered for
+the comparison the project cares most about. Fixing that needs 197 tasks per
+cell rather than 36.
+
+Two more things the analysis surfaces. Twelve cells admit 66 pairwise
+comparisons, and inspecting all of them carries a 96.6% chance of at least
+one false positive at alpha 0.05; restricting to the three pre-specified
+tests — two main effects and the interaction — brings that to 14.3%, and Holm
+correction is applied when more are examined. And because the same task suite
+runs in every cell, this is a paired design: McNemar on the shared tasks
+raises a 20-point comparison from 86% to 95% power at the full tier, for
+nothing but the analysis. At quick-tier sizes there are only about 1.5
+discordant pairs expected, so both tests sit at the alpha floor and pairing
+has nothing to work with.
+
+All of the above treats each run as one independent observation, which holds
+only if the model is stable on identical input. At temperature 0 it should
+be, but `repeats: 1` is an assumption until measured. `make variance` runs
+one cell ten times and reports how often an outcome flips; if anything
+flips, the effective sample is smaller than the run count and every number
+above is optimistic.
+
+```bash
+make power
+make variance
+```
+
 ## Guardrails
 
 Four layers. An injection filter screens inbound text before the model sees

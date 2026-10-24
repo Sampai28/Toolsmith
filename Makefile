@@ -9,6 +9,7 @@ SHELL   := /bin/sh
 COMPOSE := docker compose -f docker/docker-compose.yml
 CONFIG  ?= configs/quick.yaml
 MODEL   ?= qwen2.5:7b-instruct
+REPEATS ?= 10
 
 # One-shot container on the Compose network, so TOOLSMITH_OLLAMA_URL resolves.
 RUN := $(COMPOSE) run --rm -T harness
@@ -64,6 +65,14 @@ ablate:
 ## adversarial: run the attack suite and catalogue bypasses
 adversarial:
 	$(RUN) toolsmith.adversarial.run --config $(CONFIG)
+
+## variance: measure run-to-run variance on one cell (needed before trusting repeats:1)
+variance:
+	$(RUN) toolsmith.harness.power_cli variance --config $(CONFIG) --repeats $(REPEATS)
+
+## power: design power analysis - MDE, required n, interaction, pairing, multiplicity
+power:
+	$(RUN) toolsmith.harness.power_cli power --config $(CONFIG)
 
 ## report: build reports/evaluation.html from the committed results
 report:
