@@ -1,0 +1,71 @@
+# CI for Toolsmith.
+#
+# Written as a file and never executed or pushed from this repository.
+#
+# Deliberately does NOT run the grid, the baseline or the adversarial suite.
+# All three need local 7B inference, which on a CI runner means either a
+# multi-gigabyte model pull per job or a hosted API — and this project has no
+# hosted API by design. What CI can check is everything that does not need a
+# model: the server protocol, the guardrail rules, the scoring logic, the
+# validation gates, and determinism.
+#
+# The evaluation numbers come from a local run and are committed in results/
+# and reports/evaluation.html. CI verifies the machinery that produced them,
+# not the numbers themselves.
+
+name: ci
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      - name: Generate the corpus
+        # The MCP conformance tests skip without it, which would turn a real
+        # regression into a silent pass.
+        run: python -m toolsmith.data.generate --config configs/quick.yaml
+
+      - name: Dataset validation gates
+        run: python -m toolsmith.data.validate --strict
+
+      - name: Task suite validation gates
+        run: python -m toolsmith.harness.cli validate --config configs/quick.yaml
+
+      - name: Determinism
+        run: python -m toolsmith.harness.cli determinism --config configs/quick.yaml
+
+      - name: Tests
+        run: pytest -q
+
+      - name: Report builds from committed results
+        run: python -m toolsmith.report.build
+
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the image
+        run: docker build -f docker/Dockerfile -t toolsmith .
+      - name: Compose config is valid
+        run: docker compose -f docker/docker-compose.yml config --quiet

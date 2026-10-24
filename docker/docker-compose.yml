@@ -1,0 +1,126 @@
+# Toolsmith stack.
+#
+# Everything runs in containers and nothing is installed on the host. Inference
+# is local Ollama; there is no hosted API anywhere in this file and no place to
+# put a key.
+#
+#   docker compose -f docker/docker-compose.yml up -d ollama   # inference only
+#   docker compose -f docker/docker-compose.yml up -d          # + api + dashboard
+#
+# The harness is not a long-running service. It runs as a one-shot container:
+#   docker compose -f docker/docker-compose.yml run --rm harness <command>
+
+name: toolsmith
+
+x-toolsmith-env: &toolsmith-env
+  TOOLSMITH_OLLAMA_URL: "http://ollama:11434"
+  TOOLSMITH_MODEL: "${TOOLSMITH_MODEL:-qwen2.5:7b-instruct}"
+  PYTHONUNBUFFERED: "1"
+  # Keeps __pycache__ out of the bind-mounted source tree.
+  PYTHONDONTWRITEBYTECODE: "1"
+
+services:
+  ollama:
+    image: ollama/ollama:0.5.7
+    container_name: toolsmith-ollama
+    volumes:
+      - ollama_models:/root/.ollama
+    ports:
+      - "11434:11434"
+    environment:
+      # One model stays resident for the whole grid run. Reloading a 7B from
+      # disk between variants would dominate the measurement and make latency
+      # numbers describe page cache behaviour rather than inference.
+      OLLAMA_KEEP_ALIVE: "60m"
+      # Exactly one slot, and this is load-bearing rather than a tuning knob.
+      #
+      # Ollama divides the context window *per parallel slot* and keeps a
+      # prefix cache per slot. At 2, a detailed tool surface plus a few-shot
+      # system prompt no longer fit in a slot's share, so every request
+      # reprocessed the whole prompt: measured 78-156 s per call with no cache
+      # reuse whatsoever. At 1, the shared prefix survives between tasks in a
+      # cell, which is what the grid's cell-sequential ordering exists to
+      # exploit.
+      OLLAMA_NUM_PARALLEL: "1"
+      OLLAMA_MAX_LOADED_MODELS: "1"
+      # Big enough for the largest variant (example-bearing tools + detailed
+      # few-shot prompt) plus several turns of tool results. Too small and the
+      # prompt is silently truncated, which breaks the cache and quietly
+      # changes what the model was asked.
+      OLLAMA_CONTEXT_LENGTH: "8192"
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  harness:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: toolsmith
+    profiles: ["tools"]
+    environment: *toolsmith-env
+    volumes:
+      - ../:/work
+    working_dir: /work
+    depends_on:
+      ollama:
+        condition: service_healthy
+    entrypoint: ["python", "-m"]
+
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: toolsmith
+    container_name: toolsmith-api
+    environment: *toolsmith-env
+    volumes:
+      - ../:/work
+    working_dir: /work
+    depends_on:
+      ollama:
+        condition: service_healthy
+    command: ["uvicorn", "toolsmith.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/healthz').read()"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: toolsmith
+    container_name: toolsmith-app
+    environment:
+      <<: *toolsmith-env
+      TOOLSMITH_API_URL: "http://api:8000"
+    volumes:
+      - ../:/work
+    working_dir: /work
+    depends_on:
+      api:
+        condition: service_healthy
+    command:
+      - streamlit
+      - run
+      - app/dashboard.py
+      - --server.port=8501
+      - --server.address=0.0.0.0
+      - --server.headless=true
+      - --browser.gatherUsageStats=false
+    ports:
+      - "8501:8501"
+    restart: unless-stopped
+
+volumes:
+  ollama_models:

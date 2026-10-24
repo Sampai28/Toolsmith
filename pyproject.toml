@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "toolsmith"
+version = "0.1.0"
+description = "MCP server and two-factor ablation harness for LLM tool selection"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+
+# Every one of these is free and open source, and none of them is a hosted
+# inference client. Inference is local Ollama over plain HTTP, which is why
+# httpx is here and no provider SDK is.
+dependencies = [
+    "mcp>=1.2,<2",
+    "fastapi>=0.115,<1",
+    "uvicorn[standard]>=0.32,<1",
+    "httpx>=0.27,<1",
+    "pydantic>=2.9,<3",
+    "pyyaml>=6,<7",
+    "pandas>=2.2,<3",
+    "pyarrow>=17",
+    "plotly>=5.24,<7",
+    "streamlit>=1.39,<2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8,<9",
+    "pytest-asyncio>=0.24,<1",
+]
+
+[project.scripts]
+toolsmith-mcp = "toolsmith.server.mcp_server:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["toolsmith*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+asyncio_mode = "auto"
+filterwarnings = ["ignore::DeprecationWarning"]

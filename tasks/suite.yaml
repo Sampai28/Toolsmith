@@ -1,0 +1,409 @@
+# Task suite: 36 natural-language requests with recorded ground truth.
+#
+# `expected.tool` is the tool that answers the task. `also_acceptable` lists
+# tools that a reasonable analyst would not call wrong — used sparingly,
+# because a generous acceptance set is how a tool-selection benchmark quietly
+# stops discriminating. `prerequisite_ok` lists tools that are fine as a first
+# step (discovery) and are not counted as wrong-tool invocations.
+#
+# `expected.args` are the arguments that must match for argument correctness.
+# Optional arguments the model may legitimately add or omit are not listed and
+# are not scored.
+#
+# Categories:
+#   single_tool    one obvious tool, no near neighbour competing
+#   near_neighbor  two or more tools plausibly apply; one is clearly better
+#   multi_step     needs composition, usually discovery then computation
+#   no_tool        answerable without any tool call at all
+#
+# Ground truth for expected_answer follows from the generator's planted
+# structure (see data/generate.py: SEGMENT_EFFECTS, WAVE_TRENDS), not from a
+# measurement, so it does not drift with the noise draw.
+
+version: 1
+
+tasks:
+  # ---- single_tool -------------------------------------------------------
+  - id: t001
+    category: single_tool
+    text: "Which surveys are available and what waves does each one have?"
+    expected:
+      tool: list_surveys
+      args: {}
+
+  - id: t002
+    category: single_tool
+    text: "What exactly did the satisfaction question ask in the SaaS Platform Satisfaction Tracker, and what were the answer options?"
+    expected:
+      tool: get_question_metadata
+      args:
+        survey_id: srv_saas_nps
+        question: satisfaction
+
+  - id: t003
+    category: single_tool
+    text: "What is the mean satisfaction score across the whole SaaS Platform Satisfaction Tracker?"
+    expected:
+      tool: aggregate_metric
+      args:
+        survey_id: srv_saas_nps
+        question: satisfaction
+        metric: mean
+
+  - id: t004
+    category: single_tool
+    text: "Give me the NPS for the Retail Customer Experience Monitor."
+    expected:
+      tool: aggregate_metric
+      args:
+        survey_id: srv_retail_cx
+        question: nps
+        metric: nps
+
+  - id: t005
+    category: single_tool
+    text: "Show me how mean satisfaction has moved across every wave of the SaaS Platform Satisfaction Tracker."
+    expected:
+      tool: trend_over_waves
+      args:
+        survey_id: srv_saas_nps
+        question: satisfaction
+        metric: mean
+    expected_answer: "Satisfaction rises across waves; the planted trend is +0.18 per wave."
+
+  - id: t006
+    category: single_tool
+    text: "Break down mean renewal intent in the Fintech Trust & Adoption Study by region and company size together."
+    expected:
+      tool: compute_crosstab
+      args:
+        survey_id: srv_fintech_tr
+        question: renewal_intent
+        metric: mean
+        row_field: region
+        column_field: company_size
+
+  - id: t007
+    category: single_tool
+    text: "What is the median value-for-money rating in the SaaS Platform Satisfaction Tracker?"
+    expected:
+      tool: aggregate_metric
+      args:
+        survey_id: srv_saas_nps
+        question: value_for_money
+        metric: median
+
+  - id: t008
+    category: single_tool
+    text: "What share of respondents gave the top possible support quality rating in the Retail Customer Experience Monitor?"
+    expected:
+      tool: aggregate_metric
+      args:
+        survey_id: srv_retail_cx
+        question: support_quality
+        metric: top_box_share
+
+  - id: t009
+    category: single_tool
+    text: "List the question keys available in the Fintech Trust & Adoption Study."
+    expected:
+      tool: get_question_metadata
+      args:
+        survey_id: srv_fintech_tr
+      also_acceptable: [list_surveys]
+
+  - id: t010
+    category: single_tool
+    text: "How many responses are there for ease of use in the SaaS Platform Satisfaction Tracker?"
+    expected:
+      tool: aggregate_metric
+      args:
+        survey_id: srv_saas_nps
+        question: ease_of_use
+        metric: count
+
+  # ---- near_neighbor -----------------------------------------------------
+  - id: t011
+    category: near_neighbor
+    text: "How does mean satisfaction compare between enterprise, midmarket and SMB customers in the SaaS Platform Satisfaction Tracker?"
+    expected:
+      tool: compare_segments
+      args:
+        survey_id: srv_saas_nps
+        question: satisfaction
+        metric: mean
+        segment_field: company_size
+    expected_answer: "Enterprise highest, SMB lowest; planted offsets are +0.55 and -0.35."
+    notes: "aggregate_metric would need three calls; query_responses would need manual arithmetic."
+
+  - id: t012
+    category: near_neighbor
+    text: "Which region reports the worst support quality in the SaaS Platform Satisfaction Tracker?"
+    expected:
+      tool: compare_segments
+      args:
+        survey_id: srv_saas_nps
+        question: support_quality
+        metric: mean
+        segment_field: region
+    expected_answer: "apac, with a planted offset of -0.60."
+
+  - id: t013
+    category: near_neighbor
+    text: "Has support quality in the SaaS Platform Satisfaction Tracker got better or worse since the first wave?"
+    expected:
+      tool: trend_over_waves
+      args:
+        survey_id: srv_saas_nps
+        question: support_quality
+        metric: mean
+    expected_answer: "Worse; the planted wave trend is -0.22 per wave."
+    notes: "Two aggregate_metric calls on w1 and w4 would answer it clumsily."
+
+  - id: t014
+    category: near_neighbor
+    text: "What is mean satisfaction for enterprise customers only, in the SaaS Platform Satisfaction Tracker?"
+    expected:
+      tool: aggregate_metric
+      args:
+        survey_id: srv_saas_nps
+        question: satisfaction
+        metric: mean
+        segment:
+          company_size: enterprise
+    notes: "One group, one number: compare_segments would be the over-general choice here."
+
+  - id: t015
+    category: near_neighbor
+    text: "Show mean ease of use split by tenure and region at the same time in the Retail Customer Experience Monitor."
+    expected:
+      tool: compute_crosstab
+      args:
+        survey_id: srv_retail_cx
+        question: ease_of_use
+        metric: mean
+        row_field: tenure
+        column_field: region
+    notes: "Two dimensions at once; compare_segments handles only one."
+
+  - id: t016
+    category: near_neighbor
+    text: "Do veteran customers in the Fintech Trust & Adoption Study intend to renew more than new ones?"
+    expected:
+      tool: compare_segments
+      args:
+        survey_id: srv_fintech_tr
+        question: renewal_intent
+        metric: mean
+        segment_field: tenure
+    expected_answer: "Yes; veterans carry a planted +0.40 offset."
+
+  - id: t017
+    category: near_neighbor
+    text: "Pull up to twenty individual NPS answers from wave 3 of the Retail Customer Experience Monitor so I can eyeball them."
+    expected:
+      tool: query_responses
+      args:
+        survey_id: srv_retail_cx
+        question: nps
+    notes: "Genuinely row-level: the only task where query_responses is correct."
+
+  - id: t018
+    category: near_neighbor
+    text: "What is the NPS among enterprise respondents in the SaaS Platform Satisfaction Tracker?"
+    expected:
+      tool: aggregate_metric
+      args:
+        survey_id: srv_saas_nps
+        question: nps
+        metric: nps
+        segment:
+          company_size: enterprise
+    expected_answer: "Above the overall figure; enterprise carries a planted +1.40 offset on nps."
+
+  - id: t019
+    category: near_neighbor
+    text: "Compare NPS across regions in the SaaS Platform Satisfaction Tracker."
+    expected:
+      tool: compare_segments
+      args:
+        survey_id: srv_saas_nps
+        question: nps
+        metric: nps
+        segment_field: region
+    expected_answer: "apac lowest, with a planted -1.20 offset."
+
+  - id: t020
+    category: near_neighbor
+    text: "Track mean satisfaction wave by wave for enterprise customers only in the SaaS Platform Satisfaction Tracker."
+    expected:
+      tool: trend_over_waves
+      args:
+        survey_id: srv_saas_nps
+        question: satisfaction
+        metric: mean
+        segment:
+          company_size: enterprise
+
+  - id: t021
+    category: near_neighbor
+    text: "What proportion of Retail Customer Experience Monitor respondents gave the lowest possible value-for-money score?"
+    expected:
+      tool: aggregate_metric
+      args:
+        survey_id: srv_retail_cx
+        question: value_for_money
+        metric: bottom_box_share
+
+  - id: t022
+    category: near_neighbor
+    text: "Is there a difference in mean support quality between North America and APAC in the Retail Customer Experience Monitor?"
+    expected:
+      tool: compare_segments
+      args:
+        survey_id: srv_retail_cx
+        question: support_quality
+        metric: mean
+        segment_field: region
+
+  - id: t023
+    category: near_neighbor
+    text: "Give me the wave-by-wave NPS series for the Fintech Trust & Adoption Study."
+    expected:
+      tool: trend_over_waves
+      args:
+        survey_id: srv_fintech_tr
+        question: nps
+        metric: nps
+
+  - id: t024
+    category: near_neighbor
+    text: "How does mean value for money differ by company size in the Fintech Trust & Adoption Study?"
+    expected:
+      tool: compare_segments
+      args:
+        survey_id: srv_fintech_tr
+        question: value_for_money
+        metric: mean
+        segment_field: company_size
+    expected_answer: "Enterprise lowest; planted offset is -0.45."
+
+  - id: t025
+    category: near_neighbor
+    text: "Give me mean satisfaction in the SaaS Platform Satisfaction Tracker restricted to waves 1 and 2."
+    expected:
+      tool: aggregate_metric
+      args:
+        survey_id: srv_saas_nps
+        question: satisfaction
+        metric: mean
+        waves: [w1, w2]
+
+  - id: t026
+    category: near_neighbor
+    text: "Cross mean satisfaction by company size and tenure in the SaaS Platform Satisfaction Tracker."
+    expected:
+      tool: compute_crosstab
+      args:
+        survey_id: srv_saas_nps
+        question: satisfaction
+        metric: mean
+        row_field: company_size
+        column_field: tenure
+
+  - id: t027
+    category: near_neighbor
+    text: "How easy do new customers find the Retail Customer Experience Monitor product compared with established and veteran ones?"
+    expected:
+      tool: compare_segments
+      args:
+        survey_id: srv_retail_cx
+        question: ease_of_use
+        metric: mean
+        segment_field: tenure
+    expected_answer: "New customers lowest; planted offset is -0.50."
+
+  # ---- multi_step --------------------------------------------------------
+  - id: t028
+    category: multi_step
+    text: "I don't know what surveys exist. Find the one about fintech and tell me its mean renewal intent."
+    expected:
+      tool: aggregate_metric
+      args:
+        survey_id: srv_fintech_tr
+        question: renewal_intent
+        metric: mean
+      prerequisite_ok: [list_surveys]
+      requires_sequence: [list_surveys, aggregate_metric]
+
+  - id: t029
+    category: multi_step
+    text: "Find out what scale the NPS question uses in the SaaS tracker, then give me its mean on that scale."
+    expected:
+      tool: aggregate_metric
+      args:
+        survey_id: srv_saas_nps
+        question: nps
+        metric: mean
+      prerequisite_ok: [get_question_metadata, list_surveys]
+      requires_sequence: [get_question_metadata, aggregate_metric]
+
+  - id: t030
+    category: multi_step
+    text: "Work out which survey has the most waves, then show me its satisfaction trend."
+    expected:
+      tool: trend_over_waves
+      args:
+        question: satisfaction
+        metric: mean
+      prerequisite_ok: [list_surveys]
+      requires_sequence: [list_surveys, trend_over_waves]
+    notes: "All three surveys have the same wave count, so any survey_id is acceptable; the scored part is the discovery-then-trend composition."
+
+  - id: t031
+    category: multi_step
+    text: "Check what response options the blocker question offers in the Retail Customer Experience Monitor, then tell me what share answered with the top option."
+    expected:
+      tool: aggregate_metric
+      args:
+        survey_id: srv_retail_cx
+        question: has_blocker
+        metric: top_box_share
+      prerequisite_ok: [get_question_metadata, list_surveys]
+      requires_sequence: [get_question_metadata, aggregate_metric]
+
+  # ---- no_tool -----------------------------------------------------------
+  - id: t032
+    category: no_tool
+    text: "What is the difference between a mean score and a top box share?"
+    expected:
+      tool: null
+    expected_answer: "Mean averages all values; top box share is the proportion choosing the highest option."
+
+  - id: t033
+    category: no_tool
+    text: "In general, why might a survey report a rising mean while its NPS falls?"
+    expected:
+      tool: null
+    expected_answer: "NPS weights extremes; a shift from promoters to passives can lower NPS while the mean holds or rises."
+
+  - id: t034
+    category: no_tool
+    text: "What kinds of analysis can you do for me?"
+    expected:
+      tool: null
+    expected_answer: "Describes its own capabilities; no survey data is needed."
+
+  - id: t035
+    category: no_tool
+    text: "Is a five-point Likert scale ordinal or interval data?"
+    expected:
+      tool: null
+    expected_answer: "Ordinal, though often analysed as interval in practice."
+
+  - id: t036
+    category: no_tool
+    text: "What does 'wave' mean in a tracking study?"
+    expected:
+      tool: null
+    expected_answer: "A single round of fieldwork in a study repeated over time."

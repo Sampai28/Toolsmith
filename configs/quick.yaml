@@ -1,0 +1,93 @@
+# Quick tier — the default, and the one that was actually run.
+#
+# Sized against measurements, not a guess. On this box (Ryzen 7 260, 16
+# threads, CPU-only, no GPU) qwen2.5:7b-instruct:
+#
+#   generation          ~8.5 tok/s, and a tool-selection reply is ~50 tokens
+#   cold prompt eval    ~20 tok/s
+#   cached prefix       ~1,100 tok/s, i.e. effectively free
+#
+# The gap between the last two is the whole budget. Each grid cell is one
+# distinct prefix (system prompt + tool schemas), so the run pays one cold
+# evaluation per cell and nothing thereafter. Cells therefore run
+# sequentially with all their tasks consecutive, and
+#
+#   cost per cell  ~=  (cold prefix) + (tasks - 1) x (generation)
+#
+# Measured prefix sizes, in tokens, for the twelve cells of this tier:
+#
+#                  terse  terse_fs  detailed  detailed_fs
+#     terse          849     ~1130     ~1120         1400
+#     detailed      1575     ~1855     ~1845         2126
+#     ambiguous     1565     ~1845     ~1835         2116
+#
+# which sums to ~19,300 tokens, or ~16 minutes at 20 tok/s *before any
+# generation happens*. That is the finding that shapes this file: a
+# twelve-cell grid cannot complete in fifteen minutes on CPU at 7B, and no
+# amount of trimming tasks changes it, because tasks are not what costs.
+#
+# So the model is the knob. llama3.2:3b evaluates prompts roughly 2.5x
+# faster and brings the same grid inside the budget; qwen2.5:7b-instruct is
+# the better model and overruns it. Which to use is not a guess either —
+# that is precisely what the Step 0 capability baseline measures, and both
+# are reported. Override with:
+#
+#     make ablate MODEL=llama3.2:3b
+#
+# Two further consequences this file depends on. Every request sends
+# *identical* options: changing num_batch or num_thread mid-run invalidates
+# the cache and costs a full re-evaluation, measured at 20 tok/s against
+# 1,100. And num_ctx is set explicitly, because Ollama 0.5.x defaults to
+# 2048 and silently truncated the detailed tool surface — the model was
+# being shown a cut-off tool list and the prompt cache was destroyed on
+# every second turn.
+#
+# At 4 tasks per cell this tier is 48 runs. That is a small N and the README
+# says so; configs/full.yaml is what buys confidence intervals.
+
+name: quick
+
+model:
+  name: qwen2.5:7b-instruct
+  temperature: 0.0
+  seed: 7
+  # Tool calls are ~50 tokens. The cap matters most for the no-tool tasks,
+  # where the model writes prose: at 384 one of those took 46 s of pure
+  # generation, which is a sixth of the per-cell budget spent on one answer.
+  max_tokens: 256
+  request_timeout_s: 300
+  # Explicit: Ollama 0.5.x defaults to 2048, which a detailed tool surface
+  # plus one tool result overflows, destroying the prompt cache.
+  context_length: 8192
+
+dataset:
+  seed: 20261023
+  surveys: 3
+  waves_per_survey: 4
+  questions_per_survey: 8
+  respondents: 360
+  response_rate: 0.85
+
+grid:
+  # Three of four tool variants. `example` is dropped from the quick tier
+  # rather than any other, because it is the smallest contrast: it is
+  # `detailed` plus a usage line, so dropping it costs the least resolution on
+  # the axis. terse / detailed / ambiguous still span the full range and keep
+  # the naming control that makes the axis interpretable.
+  tool_variants: [terse, detailed, ambiguous]
+  prompt_variants: [terse, terse_fewshot, detailed, detailed_fewshot]
+  tasks_per_cell: 4
+  repeats: 1
+  concurrency: 1
+
+baseline:
+  tool_variant: detailed
+  prompt_variant: detailed_fewshot
+  tasks: 12
+  # Selection accuracy at or below this is treated as "cannot do the task".
+  # Compared against computed chance level too; the stricter of the two wins.
+  floor: 0.35
+
+adversarial:
+  tool_variant: detailed
+  prompt_variant: detailed_fewshot

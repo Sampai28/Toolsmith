@@ -1,0 +1,1 @@
+"""Standalone HTML report generation."""

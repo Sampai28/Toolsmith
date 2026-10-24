@@ -1,0 +1,49 @@
+# Full tier — the complete 4x4 grid, every task, three repeats.
+#
+# NOT RUN. On the hardware this project was built on it is roughly
+#   16 cells x 36 tasks x 3 repeats = 1,728 model calls
+# at ~6 s of generation each plus a cold prompt per cell, which is several
+# hours of CPU inference. It is here because the quick tier's numbers are
+# point estimates on six tasks per cell with no repeats, and the honest way to
+# say "these deltas are real" is to run this and report variance.
+#
+#   make ablate CONFIG=configs/full.yaml
+#
+# Three repeats is the minimum that gives a spread rather than a number. At
+# temperature 0 the model is expected to be stable, but "expected to be" is
+# not a measurement, and repeats are how that assumption gets tested.
+
+name: full
+
+model:
+  name: qwen2.5:7b-instruct
+  temperature: 0.0
+  seed: 7
+  max_tokens: 512
+  request_timeout_s: 600
+  context_length: 8192
+
+dataset:
+  seed: 20261023
+  surveys: 3
+  waves_per_survey: 4
+  questions_per_survey: 8
+  respondents: 400
+  response_rate: 0.85
+
+grid:
+  tool_variants: [terse, detailed, example, ambiguous]
+  prompt_variants: [terse, terse_fewshot, detailed, detailed_fewshot]
+  tasks_per_cell: all
+  repeats: 3
+  concurrency: 1
+
+baseline:
+  tool_variant: example
+  prompt_variant: detailed_fewshot
+  tasks: all
+  floor: 0.35
+
+adversarial:
+  tool_variant: detailed
+  prompt_variant: detailed_fewshot
